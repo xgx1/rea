@@ -1,0 +1,9 @@
+# REA 仓库项目级技能过滤（逆向工程工作区）
+# 与个人层取并集；rea 系技能只在本仓库工作区可见。
+# 2026-11-02：从个人层下沉。
+allow:
+  - "open-apk"
+  - "rea-changelog-update"
+  - "rea-tool-design"
+  - "reverse-engineer-anything"
+  - "wakaru"
