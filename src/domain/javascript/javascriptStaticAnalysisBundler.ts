@@ -4,7 +4,9 @@ import { javascriptBootstrapAt } from "./javascriptBootstrap.js";
 import {
   resolveSemanticBindingState,
   type JavaScriptSemanticAnalysisState,
+  type JavaScriptBindingIndex,
 } from "./javascriptSemanticState.js";
+import { semanticFactoryLoaderMemberAt } from "./javascriptSemanticRequireOrigin.js";
 
 import { traverseJavaScriptAst } from "./javascriptSemanticTraversal.js";
 
@@ -46,7 +48,11 @@ export const inspectBundlerRegistration = (
   if (runtime === undefined || !t.isArrayExpression(entry)) return;
   const chunkIds = entry.elements[0];
   const table = entry.elements[1];
-  const runtimeValue = runtimeMetadata(entry.elements[2]);
+  const runtimeValue = runtimeMetadata(
+    entry.elements[2],
+    bindings,
+    accumulator,
+  );
   if (!t.isArrayExpression(chunkIds) || !t.isObjectExpression(table)) return;
   const recovered = recoverBundlerModules(source, table, accumulator, {
     runtime,
@@ -251,9 +257,45 @@ const recoverBundlerModule = (
   if (key.startsWith("[computed@") || key.startsWith("[unknown@"))
     accumulator.unknownFindings += 1;
   const fingerprint = fingerprintJavaScriptAst(factory);
-  const exportsValue = collectJavaScriptExports(factory, bindings);
-  const requireName = factoryRequireName(factory);
-  const asyncChunks = collectBundlerAsyncChunkKeys(factory, requireName);
+  const parameters = runtimeFunctionParameters(factory);
+  const esbuild = runtime.startsWith("esbuild-");
+  const identifierAt = (index: number): t.Identifier | undefined => {
+    const parameter = parameters[index];
+    return t.isIdentifier(parameter) ? parameter : undefined;
+  };
+  const roles = {
+    exports:
+      runtime === "esbuild-commonjs"
+        ? identifierAt(0)
+        : esbuild
+          ? undefined
+          : identifierAt(1),
+    module:
+      runtime === "esbuild-commonjs"
+        ? identifierAt(1)
+        : esbuild
+          ? undefined
+          : identifierAt(0),
+    loader: esbuild ? undefined : identifierAt(2),
+  };
+  const exports: string[] = [];
+  accumulator.pendingBundlerExports.push({ factory, roles, exports });
+  const requireName = esbuild ? null : factoryRequireName(factory);
+  const requireParameter = esbuild ? undefined : parameters[2];
+  const requireBindingId = t.isIdentifier(requireParameter)
+    ? (resolveSemanticBindingState(
+        bindings,
+        requireParameter,
+        requireParameter.name,
+      )?.bindingId ?? null)
+    : null;
+  if (requireBindingId !== null)
+    accumulator.factoryRequireBindingIds.add(requireBindingId);
+  const asyncChunks = collectBundlerAsyncChunkKeys(
+    factory,
+    requireBindingId,
+    bindings,
+  );
   if (typeof factory.start === "number" && typeof factory.end === "number") {
     const moduleRange = {
       start: factory.start,
@@ -271,7 +313,7 @@ const recoverBundlerModule = (
       source_sha256: sha256Text(sourceSlice(source, factory)),
       structural_fingerprint_sha256: fingerprint,
       structural_fingerprint_algorithm: JAVASCRIPT_AST_FINGERPRINT_ALGORITHM,
-      exports: exportsValue.values,
+      exports,
       location: range(factory),
     },
     asyncChunkKeys: asyncChunks.values,
@@ -297,7 +339,11 @@ type BundlerFunction =
   | t.ArrowFunctionExpression
   | t.ObjectMethod;
 
-const runtimeMetadata = (node: t.Node | null | undefined): RuntimeMetadata => {
+const runtimeMetadata = (
+  node: t.Node | null | undefined,
+  bindings: JavaScriptSemanticAnalysisState,
+  accumulator: AnalysisAccumulator,
+): RuntimeMetadata => {
   if (!isBundlerFunction(node))
     return {
       requireName: null,
@@ -308,6 +354,12 @@ const runtimeMetadata = (node: t.Node | null | undefined): RuntimeMetadata => {
     };
   const parameter = runtimeFunctionParameters(node)[0];
   const requireName = t.isIdentifier(parameter) ? parameter.name : null;
+  const requireBindingId = t.isIdentifier(parameter)
+    ? (resolveSemanticBindingState(bindings, parameter, parameter.name)
+        ?.bindingId ?? null)
+    : null;
+  if (requireBindingId !== null)
+    accumulator.factoryRequireBindingIds.add(requireBindingId);
   if (requireName === null)
     return {
       requireName,
@@ -316,8 +368,18 @@ const runtimeMetadata = (node: t.Node | null | undefined): RuntimeMetadata => {
       asyncChunkKeys: [],
       unknownAsyncChunkKeys: 0,
     };
-  const entries = collectBundlerCallArgumentValues(node, requireName);
-  const asyncChunks = collectBundlerAsyncChunkKeys(node, requireName);
+  const entries = collectBundlerCallArgumentValues(
+    node,
+    requireBindingId,
+    bindings,
+    null,
+  );
+  const asyncChunks = collectBundlerCallArgumentValues(
+    node,
+    requireBindingId,
+    bindings,
+    "e",
+  );
   return {
     requireName,
     entryModuleKeys: entries.values,
@@ -329,23 +391,43 @@ const runtimeMetadata = (node: t.Node | null | undefined): RuntimeMetadata => {
 
 const collectBundlerAsyncChunkKeys = (
   factory: BundlerFunction,
-  requireName: string | null,
+  requireBindingId: string | null,
+  bindings: JavaScriptSemanticAnalysisState,
 ): StaticValues =>
-  requireName === null
+  requireBindingId === null
     ? { values: [], unknown: 0 }
-    : collectBundlerCallArgumentValues(factory, `${requireName}.e`);
+    : collectBundlerCallArgumentValues(
+        factory,
+        requireBindingId,
+        bindings,
+        "e",
+      );
 
 const collectBundlerCallArgumentValues = (
   factory: BundlerFunction,
-  callee: string,
+  bindingId: string | null,
+  bindings: JavaScriptSemanticAnalysisState,
+  member: string | null,
 ): StaticValues => {
+  if (bindingId === null) return { values: [], unknown: 0 };
   const values: string[] = [];
   let unknown = 0;
+  const bindingIds = new Set([bindingId]);
   traverseJavaScriptAst(factory, {
     enter: (node) => {
       if (!t.isCallExpression(node) && !t.isNewExpression(node))
         return undefined;
-      if (calleeName(node.callee) !== callee) return undefined;
+      const loader = semanticFactoryLoaderMemberAt(
+        node,
+        bindings,
+        bindingIds,
+        member,
+      );
+      if (loader === undefined) return undefined;
+      if (loader === "unknown") {
+        unknown += 1;
+        return undefined;
+      }
       const value = argumentValue(node.arguments[0]);
       if (value === undefined) unknown += 1;
       else values.push(value);
@@ -368,4 +450,18 @@ const uniqueValues = (values: readonly string[], unknown = 0): StaticValues => {
     values: unique,
     unknown,
   };
+};
+
+/** Complete factory exports once the shared alias-aware write index is ready. */
+export const finishBundlerExports = (
+  accumulator: AnalysisAccumulator,
+  index: JavaScriptBindingIndex,
+): void => {
+  for (const pending of accumulator.pendingBundlerExports) {
+    const collected = collectJavaScriptExports(pending.factory, {
+      roles: pending.roles,
+      index,
+    });
+    for (const value of collected.values) pending.exports.push(value);
+  }
 };

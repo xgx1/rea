@@ -330,6 +330,9 @@ describe("MCP composed workflow snapshot replay", () => {
     const dependencies: DirectAnalysisDependencies = {
       readConfiguration: () => parseConfig({}),
       createBinarySession: () => createWorkflowSession(provider),
+      createArtifactBinarySession: () => createWorkflowSession(provider),
+      createNativeDispatchBinarySession: () => createWorkflowSession(provider),
+      createNativeBinarySession: () => createWorkflowSession(provider),
       createManagedBinarySession: () => createWorkflowSession(provider),
     };
     const replay = await runDirectAnalysis(
@@ -340,7 +343,8 @@ describe("MCP composed workflow snapshot replay", () => {
       { snapshotPath },
     );
 
-    expect(replay).toEqual(output);
+    expect(output).not.toHaveProperty("caller_input_path");
+    expect(replay).toEqual({ ...output, caller_input_path: targetPath });
     expect(calls).toEqual(afterAnalysisCalls);
     expect(starts).toEqual(afterAnalysisStarts);
   });

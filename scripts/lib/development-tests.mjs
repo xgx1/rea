@@ -39,10 +39,12 @@ export const parseDevelopmentTestRequest = (mode, arguments_) => {
 // runtime or typecheck prerequisites. Add a consumer here when it reads one.
 const artifactConsumers = {
   "artifacts:mcp-catalog": [
+    "tests/boundary/mcp/deferredRuntime.test.ts",
     "tests/boundary/mcp/contractPresentation.test.ts",
     "tests/boundary/mcp/toolSchemaValidity.test.ts",
   ],
   "artifacts:product-catalog": [
+    "tests/boundary/filesystem/documentationFacts.test.ts",
     "tests/boundary/filesystem/productCatalog.test.ts",
   ],
   "artifacts:managed-evidence": [

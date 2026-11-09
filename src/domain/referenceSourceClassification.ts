@@ -27,6 +27,8 @@ const CODE_EXTENSIONS = new Set([
   "rs",
   "go",
   "java",
+  "kt",
+  "kts",
   "c",
   "h",
   "cpp",
@@ -54,6 +56,8 @@ const LANGUAGE_BY_EXTENSION = new Map<string, string>([
   ["rs", "Rust"],
   ["go", "Go"],
   ["java", "Java"],
+  ["kt", "Kotlin"],
+  ["kts", "Kotlin"],
   ["c", "C"],
   ["h", "C"],
   ["cpp", "C++"],
@@ -341,8 +345,9 @@ export const detectReferenceSourceLanguage = (path: string): string | null => {
   if (lower.endsWith(".d.cts")) return "TypeScript";
 
   const parts = basenameParts(filename);
-  const extension = parts.ext.toLowerCase();
-  return LANGUAGE_BY_EXTENSION.get(extension) ?? null;
+  if (parts.ext === "C") return "C++";
+  if (parts.ext === "M") return "Objective-C++";
+  return LANGUAGE_BY_EXTENSION.get(parts.ext.toLowerCase()) ?? null;
 };
 
 /** Classify a reference source path deterministically. */

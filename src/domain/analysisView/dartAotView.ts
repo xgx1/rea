@@ -1,13 +1,13 @@
+import { analysisViewInputError } from "./analysisViewErrors.js";
 import { z } from "zod";
 import type { AnalysisError } from "../analysisErrorBase.js";
 import { flutterResultSchemas } from "../flutter/flutterBuildAnalysis.js";
 import { err, ok, type Result } from "../result.js";
 import { parseAnalysisViewResult } from "./analysisViewParent.js";
-import {
-  analysisViewInputError,
-  type AnalysisViewParent,
-  type AnalysisViewRequest,
-  type UnsignedAnalysisView,
+import type {
+  AnalysisViewParent,
+  AnalysisViewRequest,
+  UnsignedAnalysisView,
 } from "./analysisView.js";
 import {
   completeWithinViewCoverage,
@@ -22,9 +22,9 @@ export const dartAotSummarySchema = aotSchema.extend({
     .omit({ package_uris: true, dart_uris: true, class_like_tokens: true })
     .extend({
       returned_counts: z.strictObject({
-        package_uris: z.number().int().nonnegative(),
-        dart_uris: z.number().int().nonnegative(),
-        class_like_tokens: z.number().int().nonnegative(),
+        package_uris: z.int().nonnegative(),
+        dart_uris: z.int().nonnegative(),
+        class_like_tokens: z.int().nonnegative(),
       }),
     }),
 });
@@ -33,8 +33,8 @@ export const dartAotSummarySchema = aotSchema.extend({
 export const dartAotViewRequestSchema = z.strictObject({
   kind: z.literal("dart-aot"),
   collection: z.enum(["package_uris", "dart_uris", "class_like_tokens"]),
-  offset: z.number().int().nonnegative().default(0),
-  limit: z.number().int().positive().default(64),
+  offset: z.int().nonnegative().default(0),
+  limit: z.int().positive().default(64),
 });
 
 export const dartAotViewContextSchema = z.strictObject({
